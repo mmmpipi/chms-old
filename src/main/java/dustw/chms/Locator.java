@@ -1,5 +1,6 @@
 package dustw.chms;
 
+import com.electronwill.nightconfig.core.file.FileConfig;
 import com.mojang.logging.LogUtils;
 import cpw.mods.modlauncher.api.LamdbaExceptionUtils;
 import net.minecraftforge.fml.loading.FMLPaths;
@@ -23,7 +24,33 @@ import java.util.stream.Stream;
  */
 public class Locator extends AbstractJarFileModLocator {
     static final Logger LOGGER = LogUtils.getLogger();
-    Path modFolder = FMLPaths.MODSDIR.get();
+    private final Path modFolder = FMLPaths.MODSDIR.get();
+
+    private final Path configPath = FMLPaths.CONFIGDIR.get().resolve("CHMS.toml");
+
+    private List<String> nameList;
+
+
+    private void getConfig(){
+        try {
+            File file = configPath.toFile();
+            if (!file.exists()){
+                FileConfig fileConfig = FileConfig.of(configPath);
+                fileConfig.load();
+                fileConfig.set("black_list",List.of("disable",".connector"));
+                fileConfig.save();
+                fileConfig.close();
+            }
+            FileConfig config = FileConfig.of(configPath);
+            config.load();
+            this.nameList = config.get("black_list");
+        } catch (Exception e) {
+            LOGGER.error("cant load CMFS config:",e);
+        }
+        if (nameList == null){
+            nameList = List.of();
+        }
+    }
 
     @Override
     public String name() {
@@ -57,7 +84,7 @@ public class Locator extends AbstractJarFileModLocator {
     Path scanFolder(Path folder, ArrayList<File> fileList) {
         try (var files = Files.list(folder)) {
             files.map(Path::toFile)
-                    .filter(f -> f.isDirectory() && !f.getName().equals("disable"))
+                    .filter(f -> f.isDirectory() && !nameList.contains(f.getName()))
                     .map(file -> this.scanFolder(file.toPath(), fileList))
                     .forEach(file -> fileList.add(file.toFile()));
         } catch (IOException e) {
@@ -70,7 +97,9 @@ public class Locator extends AbstractJarFileModLocator {
     @Override
     public Stream<Path> scanCandidates() {
         LOGGER.debug("[CHMS] Scanning mods dir {} for mods", this.modFolder);
+        getConfig();
         List<Path> excluded = ModDirTransformerDiscoverer.allExcluded();
+        var a = LamdbaExceptionUtils.uncheck(this::getAllChild);
         return LamdbaExceptionUtils.uncheck(this::getAllChild)
                 .filter(p -> !excluded.contains(p))
                 .sorted(Comparator.comparing(path -> StringUtils.toLowerCase(path.getFileName().toString())))
